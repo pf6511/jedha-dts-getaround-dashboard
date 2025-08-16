@@ -1,0 +1,6 @@
+.git
+.gitignore
+
+secrets.env
+doc/
+data/

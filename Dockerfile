@@ -1,21 +1,39 @@
-FROM python:3.9-slim
+FROM continuumio/miniconda3
 
-WORKDIR /app
+RUN apt-get update -y 
+RUN apt-get install nano unzip curl -y
 
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    software-properties-common \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+# THIS IS SPECIFIC TO HUGGINFACE
+# We create a new user named "user" with ID of 1000
+RUN useradd -m -u 1000 user
+# We switch from "root" (default user when creating an image) to "user" 
+USER user
+# We set two environmnet variables 
+# so that we can give ownership to all files in there afterwards
+# we also add /home/user/.local/bin in the $PATH environment variable 
+# PATH environment variable sets paths to look for installed binaries
+# We update it so that Linux knows where to look for binaries if we were to install them with "user".
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH
 
-COPY requirements.txt ./
-COPY src/ ./src/
+# We set working directory to $HOME/app (<=> /home/user/app)
+WORKDIR $HOME/app
 
-RUN pip3 install -r requirements.txt
+RUN curl -fsSL https://get.deta.dev/cli.sh | sh
 
+# Install basic dependencies
+RUN pip install boto3 pandas gunicorn streamlit scikit-learn matplotlib seaborn plotly openpyxl altair
+
+# Copy all local files to /home/user/app with "user" as owner of these files
+# Always use --chown=user when using HUGGINGFACE to avoid permission errors
+# TEST comment
+COPY --chown=user . $HOME/app
+
+#COPY requirements.txt /dependencies/requirements.txt
+#RUN pip install -r /dependencies/requirements.txt
+
+# TEST comment
+COPY . $HOME/app
 EXPOSE 8501
 
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
-
-ENTRYPOINT ["streamlit", "run", "src/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD streamlit run --server.port $PORT --server.runOnSave true --server.headless true --logger.level debug getaround_dashboard_app.py
