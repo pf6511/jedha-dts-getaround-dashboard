@@ -1,7 +1,8 @@
 pandas
+typing 
+pydantic
 streamlit
 boto3 
-pandas 
 gunicorn 
 streamlit 
 scikit-learn 
@@ -10,4 +11,4 @@ seaborn
 plotly 
 openpyxl 
 altair
--e ./rental-schemas
+-e ./getaround-schemas

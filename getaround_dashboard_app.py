@@ -5,7 +5,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 
-from typing import Tuple
+from pydantic import BaseModel,Field
+from pydantic_core import PydanticUndefined
+from typing import Tuple, Literal, get_origin, get_args
 
 import os
 from pathlib import Path
@@ -14,6 +16,9 @@ import random
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+
+from getaround_schemas.price_predict import RentalPricePredictInput
+import requests
 
 st.set_page_config(
     page_title="Getaround Insights Dashboard",
@@ -403,3 +408,64 @@ with min_delay_threshold_col:
                                                                         ,yaxis_title="Cumulative count",point_index=2)
 
     st.plotly_chart(fig, use_container_width=True) 
+
+st.subheader("Getaround car rental price prediction",divider=True)
+
+RENTAL_PRICE_PRED_FASTAPI_URL = "https://pieric-getaround-api.hf.space/predict"
+
+inputs = {}
+
+with st.form("prediction_form"):
+    for field_name, field_info in RentalPricePredictInput.model_fields.items():
+        field_type = field_info.annotation
+        default = field_info.default
+        if default is PydanticUndefined:
+            default = None
+
+        # --- Case 1: Literal (restricted choices) ---
+        if get_origin(field_type) is Literal:
+            choices = list(get_args(field_type))
+            index = 0
+            if default is not None and default in choices:
+                index = choices.index(default)
+            inputs[field_name] = st.selectbox(field_name, choices, index=index)
+
+        # --- Case 2: Boolean ---
+        elif field_type is bool:
+            inputs[field_name] = st.checkbox(field_name, value=default or False)
+
+        # --- Case 3: Int or float ---
+        elif field_type in [int, float]:
+            # In v2, constraints are in metadata
+            ge = None
+            for meta in field_info.metadata:
+                if hasattr(meta, "ge"):
+                    ge = meta.ge
+            min_val = ge if ge is not None else 0
+
+            inputs[field_name] = st.number_input(
+                field_name, min_value=min_val, value=default or 0
+            )
+
+        # --- Case 4: String ---
+        elif field_type is str:
+            inputs[field_name] = st.text_input(field_name, value=default or "")
+
+        else:
+            st.warning(f"⚠️ Field {field_name} of type {field_type} not handled automatically")
+
+    submitted = st.form_submit_button("Predict Rental Price")
+
+# --- Build request if submitted ---
+if submitted:
+    try:
+        payload = RentalPricePredictInput(**inputs).model_dump() 
+        st.write("📦 Payload sent to API:", payload)  # Debugging helper
+        response = requests.post(RENTAL_PRICE_PRED_FASTAPI_URL, json=payload)
+        if response.status_code == 200:
+            prediction = response.json()
+            st.success(f"💰 Predicted Rental Price: {prediction['prediction']} €")
+        else:
+            st.error(f"API Error {response.status_code}: {response.text}")
+    except Exception as e:
+        st.error(f"❌ Validation failed: {e}")
