@@ -1,3 +1,13 @@
-altair
 pandas
 streamlit
+boto3 
+pandas 
+gunicorn 
+streamlit 
+scikit-learn 
+matplotlib 
+seaborn 
+plotly 
+openpyxl 
+altair
+-e ./rental-schemas

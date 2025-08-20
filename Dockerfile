@@ -21,16 +21,13 @@ WORKDIR $HOME/app
 
 RUN curl -fsSL https://get.deta.dev/cli.sh | sh
 
-# Install basic dependencies
-RUN pip install boto3 pandas gunicorn streamlit scikit-learn matplotlib seaborn plotly openpyxl altair
-
 # Copy all local files to /home/user/app with "user" as owner of these files
 # Always use --chown=user when using HUGGINGFACE to avoid permission errors
 # TEST comment
 COPY --chown=user . $HOME/app
 
-#COPY requirements.txt /dependencies/requirements.txt
-#RUN pip install -r /dependencies/requirements.txt
+COPY requirements.txt /dependencies/requirements.txt
+RUN pip install -r /dependencies/requirements.txt
 
 # TEST comment
 COPY . $HOME/app
