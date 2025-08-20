@@ -1,0 +1,3 @@
+[submodule "getaround-schemas"]
+	path = getaround-schemas
+	url = https://github.com/pf6511/jedha-dts-getaround-schemas.git
