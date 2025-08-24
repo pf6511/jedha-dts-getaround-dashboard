@@ -165,6 +165,10 @@ def generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_data
     return fig
 
 def compute_rentals_with_previous_rental_dtf(delay_analysis_dtf:pd.DataFrame) -> pd.DataFrame:
+    return delay_analysis_dtf.loc[delay_analysis_dtf['previous_ended_rental_id'].notnull()]
+
+
+def compute_rentals_with_previous_rental_join_dtf(delay_analysis_dtf:pd.DataFrame) -> pd.DataFrame:
     rentals_with_previous_rental = delay_analysis_dtf.loc[delay_analysis_dtf['previous_ended_rental_id'].notnull()]
     rentals_with_previous_rental = pd.merge(delay_analysis_dtf,rentals_with_previous_rental, left_on=['rental_id'], right_on=['previous_ended_rental_id'], how='inner', suffixes=['_previous', '_next'])
 
@@ -343,6 +347,7 @@ with sep_col:
     )
 
 with driver_previous_checkin_ref_col:
+    rentals_with_previous_rental_join = compute_rentals_with_previous_rental_join_dtf(delay_analysis_dtf)
     st.markdown('**Within all rentals with previous rentals (reference)**', unsafe_allow_html=True)
 
     metric_names = ['proportion (%) of next drivers returning car in advance'
@@ -352,22 +357,22 @@ with driver_previous_checkin_ref_col:
     for i, name in enumerate(metric_names):
         data[i]['name'] = name
 
-    data[0]['metric'] = format_decimals(100*rentals_with_previous_rental.query("delay_at_checkout_in_minutes_next < 0").shape[0]/rentals_with_previous_rental.shape[0],2)
-    data[1]['metric'] = format_decimals(100*rentals_with_previous_rental.query("delay_at_checkout_in_minutes_next > 0").shape[0]/rentals_with_previous_rental.shape[0],2)
-    data[2]['metric'] = format_decimals(100*rentals_with_previous_rental.query('state_next == "canceled"').shape[0]/rentals_with_previous_rental.shape[0],2)
+    data[0]['metric'] = format_decimals(100*rentals_with_previous_rental_join.query("delay_at_checkout_in_minutes_next < 0").shape[0]/rentals_with_previous_rental_join.shape[0],2)
+    data[1]['metric'] = format_decimals(100*rentals_with_previous_rental_join.query("delay_at_checkout_in_minutes_next > 0").shape[0]/rentals_with_previous_rental_join.shape[0],2)
+    data[2]['metric'] = format_decimals(100*rentals_with_previous_rental_join.query('state_next == "canceled"').shape[0]/rentals_with_previous_rental_join.shape[0],2)
 
 
-    data[0]['breakdown'] = (rentals_with_previous_rental.loc[rentals_with_previous_rental['delay_at_checkout_in_minutes_next'] < 0]['checkin_type']
+    data[0]['breakdown'] = (rentals_with_previous_rental_join.loc[rentals_with_previous_rental_join['delay_at_checkout_in_minutes_next'] < 0]['checkin_type']
         .value_counts(normalize=True)
         .mul(100).round(2).reset_index()
     )
 
-    data[1]['breakdown'] = (rentals_with_previous_rental.loc[rentals_with_previous_rental['delay_at_checkout_in_minutes_next'] > 0]['checkin_type']
+    data[1]['breakdown'] = (rentals_with_previous_rental_join.loc[rentals_with_previous_rental_join['delay_at_checkout_in_minutes_next'] > 0]['checkin_type']
         .value_counts(normalize=True)
         .mul(100).round(2).reset_index()
     )
 
-    data[2]['breakdown'] = (rentals_with_previous_rental.loc[rentals_with_previous_rental['state_next'] ==  'canceled']['checkin_type']
+    data[2]['breakdown'] = (rentals_with_previous_rental_join.loc[rentals_with_previous_rental_join['state_next'] ==  'canceled']['checkin_type']
         .value_counts(normalize=True)
         .mul(100).round(2).reset_index()
     )
