@@ -170,7 +170,7 @@ def compute_rentals_with_previous_rental_dtf(delay_analysis_dtf:pd.DataFrame) ->
 
 def compute_rentals_with_previous_rental_join_dtf(delay_analysis_dtf:pd.DataFrame) -> pd.DataFrame:
     rentals_with_previous_rental = delay_analysis_dtf.loc[delay_analysis_dtf['previous_ended_rental_id'].notnull()]
-    rentals_with_previous_rental = pd.merge(delay_analysis_dtf,rentals_with_previous_rental, left_on=['rental_id'], right_on=['previous_ended_rental_id'], how='inner', suffixes=['_previous', '_next'])
+    return pd.merge(delay_analysis_dtf,rentals_with_previous_rental, left_on=['rental_id'], right_on=['previous_ended_rental_id'], how='inner', suffixes=['_previous', '_next'])
 
 def compute_drivers_late_next_checkin_join_dtf(delay_analysis_dtf:pd.DataFrame) -> pd.DataFrame:
     rentals_with_previous_rental = compute_rentals_with_previous_rental_dtf(delay_analysis_dtf)
