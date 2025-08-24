@@ -418,7 +418,7 @@ with min_delay_threshold_col:
 
 st.subheader("Getaround car rental price prediction")
 
-RENTAL_PRICE_PRED_FASTAPI_URL = "https://pieric-mlflow-server-demo.hf.space/predict"
+RENTAL_PRICE_PRED_FASTAPI_URL = "https://pieric-getaround-api.hf.space/predict"
 
 inputs = {}
 
