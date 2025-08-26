@@ -5,10 +5,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 
-from typing import Tuple
+from typing import Tuple, List
 from pydantic import BaseModel,Field
 from pydantic_core import PydanticUndefined
-from typing import Tuple, Literal, get_origin, get_args
+from typing import Literal, get_origin, get_args
 
 import os
 from pathlib import Path
@@ -20,6 +20,8 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from getaround_schemas.price_predict import RentalPricePredictInput
 import requests
+
+import statsmodels.api as sm
 
 st.set_page_config(
     page_title="Getaround Insights Dashboard",
@@ -103,7 +105,7 @@ def generate_cumulative_rentals_by_threshold_chart(delay_analysis_delta_with_pre
 
 
 def generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_dataframe:pd.DataFrame,distrib_column:str
-                                                               ,chart_title:str, xaxis_title:str, yaxis_title:str, point_index:int) -> go.Figure:
+                                                               ,chart_title:str, xaxis_title:str, yaxis_title:str, point_index:int) -> Tuple[go.Figure, List[Tuple[str,float,float]]]:
     bin_midpoints = 0.5 * (CHART_CUSTOM_BINS[:-1] + CHART_CUSTOM_BINS[1:])
 
     # Prepare subplot layout
@@ -113,6 +115,9 @@ def generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_data
     cumulative_counts_list = []
     title_list = []
     y_max_list = []
+
+    output_data_points: List[Tuple[str, float, float]] = []
+
     for i, scope in enumerate(scopes):
         data = delay_analysis_dataframe[delay_analysis_dataframe["checkin_type"] == scope][distrib_column]
         hist, _ = np.histogram(data, bins=CHART_CUSTOM_BINS, density=False)
@@ -121,6 +126,7 @@ def generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_data
         max = cumulative_counts[len(cumulative_counts)-1]
         title_list.append((scope + ' (total : ' + str(max) + ')'))
         y_max_list.append(max)
+        output_data_points.append((scope,bin_midpoints[point_index],cumulative_counts[point_index]))
 
     fig = make_subplots(
         rows=n_rows,
@@ -168,7 +174,7 @@ def generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_data
         yaxis_title=yaxis_title,
         template="plotly_white"
     )
-    return fig
+    return (fig, output_data_points)
 
 def compute_rentals_with_previous_rental_dtf(delay_analysis_dtf:pd.DataFrame) -> pd.DataFrame:
     return delay_analysis_dtf.loc[delay_analysis_dtf['previous_ended_rental_id'].notnull()]
@@ -186,9 +192,33 @@ def compute_drivers_late_next_checkin_join_dtf(delay_analysis_dtf:pd.DataFrame) 
     return drivers_late_next_checking_dtf.loc[drivers_late_next_checking_dtf['delay_at_checkout_in_minutes_previous'] > drivers_late_next_checking_dtf['time_delta_with_previous_rental_in_minutes_next']]
 
 
+def test_diff_proportions(df, subset_cond, success_cond):
+    """
+    Test if success proportion in a subset is
+    significantly different from that of global set.
+    """
+    # Global
+    n_D = len(df)
+    x_D = success_cond.sum()
+
+    # Subset
+    subset = df[subset_cond]
+    n_S = len(subset)
+    x_S = success_cond[subset_cond].sum()
+
+    # Z-test pour proportions
+    count = [x_S, x_D]
+    nobs = [n_S, n_D]
+    stat, pval = sm.stats.proportions_ztest(count, nobs)
+
+    return {
+        "prop_global": x_D / n_D if n_D > 0 else None,
+        "prop_subset": x_S / n_S if n_S > 0 else None,
+        "p_value": pval
+    }
 
 st.title("Getaround insight")
-st.subheader("Getaround delay analysis")
+st.subheader("Getaround delay analysis", divider=True)
 
 @st.cache_data()
 def load_data() -> pd.DataFrame:
@@ -253,8 +283,8 @@ with col2:
         .reset_index()
     ))
 
-st.markdown("---")
-st.subheader("Impacts of a minimum delay between two rentals", divider=True)
+#st.markdown("---")
+st.subheader("Impacts of a minimum delay between two rentals", divider='grey')
 delay_analysis_delta_with_previous_dtf = delay_analysis_dtf.query("time_delta_with_previous_rental_in_minutes.notnull()")
 #st.markdown("---")
 #st.markdown("<br>", unsafe_allow_html=True)
@@ -279,122 +309,89 @@ with rental_distribution_delay_threshold_col:
     st.plotly_chart(fig, use_container_width=True)
     sample_percentage = 100*sample[2]
     sample_percentage_formatted = format_decimals(sample_percentage,2)
-    st.markdown(f'With a threshold of {int(sample[0])} minutes, approximatively {int(sample[1])} rentals are concerned. It represents {sample_percentage_formatted} % of the rentals with a previous rental, and {sample_percentage_formatted}% * {proportion_delta_with_previous_formatted}% of the whole population.')
+    st.markdown(f"<div style='margin-left:30px;'>✅With a threshold of {int(sample[0])} minutes, approximatively {int(sample[1])} rentals are concerned. It represents {sample_percentage_formatted} % of the rentals with a previous rental, and {sample_percentage_formatted}% * {proportion_delta_with_previous_formatted}% of the whole population.</div>", unsafe_allow_html=True)
 
 with rental_distribution_delay_threshold_scope_col:
-    fig = generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_dataframe=delay_analysis_delta_with_previous_dtf
+    fig, data_points = generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_dataframe=delay_analysis_delta_with_previous_dtf
                                                                      ,distrib_column='time_delta_with_previous_rental_in_minutes'
                                                                      ,chart_title='Cumulative Distribution of rentals affected by Threshold / scope'
                                                                      ,xaxis_title='Threshold - Time delta with previous rental (minutes)'
                                                                      ,yaxis_title="Cumulative count",point_index=2)
-    st.plotly_chart(fig, use_container_width=True)    
-    
+    st.plotly_chart(fig, use_container_width=True)   
+    for i in range(0,len(data_points)):
+        scope_sample = data_points[i]
+        st.markdown(f"<div style='margin-left:30px;'>✅ for {scope_sample[0]}, with a threshold of {int(scope_sample[1])} minutes, approximatively {int(scope_sample[2])} rentals are concerned.</div>", unsafe_allow_html=True)
+ 
+st.markdown("<br><br>", unsafe_allow_html=True)    
 st.markdown('<h5> How often are drivers late for the next check-in? How does it impact the next driver ?  </h5>', unsafe_allow_html=True)
-
 st.markdown('<h6> 1. How often are drivers late for the next check-in ?  </h6>', unsafe_allow_html=True)
 
 drivers_late_next_checking_dtf = compute_drivers_late_next_checkin_join_dtf(delay_analysis_dtf)
 rentals_with_previous_rental = compute_rentals_with_previous_rental_dtf(delay_analysis_dtf)
 st.markdown(f'proportion of drivers late for next check-in : {format_decimals(100*drivers_late_next_checking_dtf.shape[0]/rentals_with_previous_rental.shape[0],2)} %')
 
+col1, col2, col3 = st.columns([3, 6, 1])
+with col1:
+    st.markdown('**Checkin Type distribution**')
+    st.write((
+        drivers_late_next_checking_dtf['checkin_type_previous']
+        .value_counts(normalize=True)
+        .mul(100)
+        .round(2)
+        .reset_index()
+    ))
+
+rentals_with_previous_rental_join = compute_rentals_with_previous_rental_join_dtf(delay_analysis_dtf)
+subset_cond = ((rentals_with_previous_rental_join['delay_at_checkout_in_minutes_previous'] > 0 ) & (rentals_with_previous_rental_join['delay_at_checkout_in_minutes_previous'] > rentals_with_previous_rental_join['time_delta_with_previous_rental_in_minutes_next']))
+test_diff_proportions(rentals_with_previous_rental_join
+    , subset_cond = subset_cond
+    , success_cond  = (rentals_with_previous_rental_join['checkin_type_previous'] == "mobile"))
+
+st.markdown('✅ There is more chance for driver to be late for next-checkin when scope is <b> mobile </b> (z-test is significant)', unsafe_allow_html=True)
+
 st.markdown('<h6> 2.How does it impact the next driver ?  </h6>', unsafe_allow_html=True)
 st.markdown('Is it fair to assume that when driver is late for next check-in, then next driver has more chance to cancel his rental or to be late too for for next check-in.')
 st.markdown("Let's compute canceling rate / dalay at checkout rate comparing with reference (drivers with previous checking) ")
 
-late_driver_impact_next_col, sep_col, driver_previous_checkin_ref_col  = st.columns([4,0.1,4])
-with late_driver_impact_next_col:
+#--------------------------------------------------------------------------------------------
 
-    st.markdown('**Within late drivers for next check-in**', unsafe_allow_html=True)
+next_driver_returning_late_z_test = test_diff_proportions(rentals_with_previous_rental_join
+    , subset_cond=subset_cond
+    , success_cond  = (rentals_with_previous_rental_join['delay_at_checkout_in_minutes_next'] > 0))
 
-    metric_names = ['proportion (%) of next drivers returning car in advance'
-                    , 'proportion (%) of next drivers returning car late'
-                    ,'proportion (%) of next drivers canceling their rental' ]
-    data= [{} for _ in range(len(metric_names))]
-    for i, name in enumerate(metric_names):
-        data[i]['name'] = name
+next_driver_cancel_z_test = test_diff_proportions(rentals_with_previous_rental_join
+    , subset_cond=subset_cond
+    , success_cond  = (rentals_with_previous_rental_join['state_next'] == "canceled"))
 
-    data[0]['metric'] = format_decimals(100*drivers_late_next_checking_dtf.query("delay_at_checkout_in_minutes_next < 0").shape[0]/drivers_late_next_checking_dtf.shape[0],2)
-    data[1]['metric'] = format_decimals(100*drivers_late_next_checking_dtf.query("delay_at_checkout_in_minutes_next > 0").shape[0]/drivers_late_next_checking_dtf.shape[0],2)
-    data[2]['metric'] = format_decimals(100*drivers_late_next_checking_dtf.query('state_next == "canceled"').shape[0]/drivers_late_next_checking_dtf.shape[0],2)
+header = pd.MultiIndex.from_tuples([
+    ("Metric","Name"),
+    ("Metric","Within late drivers for next check-in"),
+    ("Metric","Within all rentals with previous rentals (reference)"),
+    ("Two-proportion significance test", "p-value"),
+    ("Two-proportion significance test", "diff significative")
+])
 
-
-    data[0]['breakdown'] = (drivers_late_next_checking_dtf.loc[drivers_late_next_checking_dtf['delay_at_checkout_in_minutes_next'] < 0]['checkin_type_previous']
-        .value_counts(normalize=True)
-        .mul(100).round(2).reset_index()
-    )
-
-    data[1]['breakdown'] = (drivers_late_next_checking_dtf.loc[drivers_late_next_checking_dtf['delay_at_checkout_in_minutes_next'] > 0]['checkin_type_previous']
-        .value_counts(normalize=True)
-        .mul(100).round(2).reset_index()
-    )
-
-    data[2]['breakdown'] = (drivers_late_next_checking_dtf.loc[drivers_late_next_checking_dtf['state_next'] ==  'canceled']['checkin_type_previous']
-        .value_counts(normalize=True)
-        .mul(100).round(2).reset_index()
-    )
-
-    col_name, col_metric, col_bkdown = st.columns([2,1,3])
-    col_name.markdown('**Metric**')
-    col_metric.markdown('**Value**')
-    col_bkdown.markdown('**Breakdown**')
-
-    for row in data:
-        col_name, col_metric, col_bkdown = st.columns([2,1,3])
-        col_name.write(row['name'])
-        col_metric.write(row['metric'])
-        with col_bkdown:
-            with st.expander("Details"):
-                st.write(row['breakdown'])
-
-with sep_col:
-    st.markdown(
-        """<div style='border-left: 2px solid lightgray; height: 100%;'></div>""",
-        unsafe_allow_html=True
-    )
-
-with driver_previous_checkin_ref_col:
-    rentals_with_previous_rental_join = compute_rentals_with_previous_rental_join_dtf(delay_analysis_dtf)
-    st.markdown('**Within all rentals with previous rentals (reference)**', unsafe_allow_html=True)
-
-    metric_names = ['proportion (%) of next drivers returning car in advance'
-                    , 'proportion (%) of next drivers returning car late'
-                    ,'proportion (%) of next drivers canceling their rental' ]
-    data= [{} for _ in range(len(metric_names))]
-    for i, name in enumerate(metric_names):
-        data[i]['name'] = name
-
-    data[0]['metric'] = format_decimals(100*rentals_with_previous_rental_join.query("delay_at_checkout_in_minutes_next < 0").shape[0]/rentals_with_previous_rental_join.shape[0],2)
-    data[1]['metric'] = format_decimals(100*rentals_with_previous_rental_join.query("delay_at_checkout_in_minutes_next > 0").shape[0]/rentals_with_previous_rental_join.shape[0],2)
-    data[2]['metric'] = format_decimals(100*rentals_with_previous_rental_join.query('state_next == "canceled"').shape[0]/rentals_with_previous_rental_join.shape[0],2)
+data = [
+    ['proportion (%) of next drivers returning car late',
+        format_decimals(float(next_driver_returning_late_z_test['prop_subset']),2),
+        format_decimals(float(next_driver_returning_late_z_test['prop_global']),2),
+        format_decimals(float(next_driver_returning_late_z_test['p_value']),5),
+        str(float(next_driver_returning_late_z_test['p_value']) < 0.05)
+    ]
+    , ['proportion (%) of next drivers canceling their rental',
+        format_decimals(float(next_driver_cancel_z_test['prop_subset']),2),
+        format_decimals(float(next_driver_cancel_z_test['prop_global']),2),
+        format_decimals(float(next_driver_cancel_z_test['p_value']),5),
+        str(float(next_driver_cancel_z_test['p_value']) < 0.05)
+    ]
+]
 
 
-    data[0]['breakdown'] = (rentals_with_previous_rental_join.loc[rentals_with_previous_rental_join['delay_at_checkout_in_minutes_next'] < 0]['checkin_type_previous']
-        .value_counts(normalize=True)
-        .mul(100).round(2).reset_index()
-    )
+df = pd.DataFrame(data, columns=header)
 
-    data[1]['breakdown'] = (rentals_with_previous_rental_join.loc[rentals_with_previous_rental_join['delay_at_checkout_in_minutes_next'] > 0]['checkin_type_previous']
-        .value_counts(normalize=True)
-        .mul(100).round(2).reset_index()
-    )
-
-    data[2]['breakdown'] = (rentals_with_previous_rental_join.loc[rentals_with_previous_rental_join['state_next'] ==  'canceled']['checkin_type_previous']
-        .value_counts(normalize=True)
-        .mul(100).round(2).reset_index()
-    )
-
-    col_name, col_metric, col_bkdown = st.columns([2,1,3])
-    col_name.markdown('**Metric**')
-    col_metric.markdown('**Value**')
-    col_bkdown.markdown('**Breakdown**')
-
-    for row in data:
-        col_name, col_metric, col_bkdown = st.columns([2,1,3])
-        col_name.write(row['name'])
-        col_metric.write(row['metric'])
-        with col_bkdown:
-            with st.expander("Details"):
-                st.write(row['breakdown'])
+st.dataframe(df)  # or st.table(df)
+st.markdown('✅ So when driver is late for next checkin, it has an impact on next driver (next driver has more chance to return car late)', unsafe_allow_html=True)
+#-----------------------------------------------------------------------------------------------
 
 
 st.markdown('<h5> How many problematic cases will it solve depending on the chosen threshold and scope ?  </h5>', unsafe_allow_html=True)
@@ -408,15 +405,20 @@ with min_delay_threshold_col:
     drivers_late_next_checking_threshold_dtf = drivers_late_next_checking_dtf.loc[:,['min_delay_between_rentals', 'checkin_type_previous' ]].copy()
     drivers_late_next_checking_threshold_dtf.rename(columns={'checkin_type_previous':'checkin_type'}, inplace=True)
 
-    fig = generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_dataframe=drivers_late_next_checking_threshold_dtf
+    fig, data_points = generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_dataframe=drivers_late_next_checking_threshold_dtf
                                                                         ,distrib_column='min_delay_between_rentals'
                                                                         ,chart_title='Cumulative Distribution of rentals potentialy solved by Threshold'
                                                                         ,xaxis_title='Threshold - Time delta with previous rental (minutes)'
                                                                         ,yaxis_title="Cumulative count",point_index=2)
 
     st.plotly_chart(fig, use_container_width=True) 
+    for i in range(0,len(data_points)):
+        scope_sample = data_points[i]
+        st.markdown(f"<div style='margin-left:30px;'>✅ for {scope_sample[0]}, with a threshold of {int(scope_sample[1])} minutes, approximatively {int(scope_sample[2])} rentals are potentialy solved.</div>", unsafe_allow_html=True)
 
-st.subheader("Getaround car rental price prediction")
+#------------------------------------ Predict section ----------------------------------------------------
+st.markdown("<br><br>", unsafe_allow_html=True)
+st.subheader("Getaround car rental price prediction", divider=True)
 
 RENTAL_PRICE_PRED_FASTAPI_URL = "https://pieric-getaround-api.hf.space/predict"
 
