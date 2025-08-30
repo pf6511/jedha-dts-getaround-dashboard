@@ -109,75 +109,107 @@ def generate_cumulative_rentals_by_threshold_chart(delay_analysis_delta_with_pre
 
 
 def generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_dataframe:pd.DataFrame,distrib_column:str
-                                                               ,chart_title:str, xaxis_title:str, yaxis_title:str, point_index:int) -> Tuple[go.Figure, List[Tuple[str,float,float]]]:
-    bin_midpoints = 0.5 * (CHART_CUSTOM_BINS[:-1] + CHART_CUSTOM_BINS[1:])
+                                                               ,chart_title:str, xaxis_title:str, yaxis_title:str, point_index:int, quantile_zoom:float= None ) -> Tuple[go.Figure, List[Tuple[str,float,float,float]]]:
+    
+    col = delay_analysis_dataframe[distrib_column]
+    max_val = col.max()
+    custom_bins = np.arange(0, max_val + CHART_STEP, CHART_STEP)
+    bin_midpoints = 0.5 * (custom_bins[:-1] + custom_bins[1:])
 
-    # Prepare subplot layout
     scopes = sorted(delay_analysis_dataframe["checkin_type"].unique())
     n_rows = len(scopes)
 
     cumulative_counts_list = []
+    cumulative_props_list = []
     title_list = []
     y_max_list = []
+    output_data_points: List[Tuple[str, float, float,float]] = []
 
-    output_data_points: List[Tuple[str, float, float]] = []
-
+    # préparer les données pour chaque scope et pour les sample points
     for i, scope in enumerate(scopes):
         data = delay_analysis_dataframe[delay_analysis_dataframe["checkin_type"] == scope][distrib_column]
-        hist, _ = np.histogram(data, bins=CHART_CUSTOM_BINS, density=False)
+        hist, _ = np.histogram(data, bins=custom_bins, density=False)
         cumulative_counts = np.cumsum(hist)
+        proportions = cumulative_counts / cumulative_counts[-1]
+        total = cumulative_counts[-1]
+
         cumulative_counts_list.append(cumulative_counts)
-        max = cumulative_counts[len(cumulative_counts)-1]
-        title_list.append((scope + ' (total : ' + str(max) + ')'))
-        y_max_list.append(max)
-        output_data_points.append((scope,bin_midpoints[point_index],cumulative_counts[point_index]))
+        cumulative_props_list.append(proportions)
+        title_list.append(f"{scope} (total : {total})")
+        y_max_list.append(total)
+        output_data_points.append((scope, bin_midpoints[point_index], cumulative_counts[point_index],proportions[point_index]))
 
     fig = make_subplots(
         rows=n_rows,
         cols=1,
         shared_xaxes=True,
-        subplot_titles= title_list
+        subplot_titles=title_list,
+        specs=[[{"secondary_y": True}] for _ in range(n_rows)]  # <--- clé pour avoir double axe
     )
 
-    # Add traces
     for i, scope in enumerate(scopes):
-        #data = delay_analysis_delta_with_previous_dtf[delay_analysis_delta_with_previous_dtf["checkin_type"] == scope]["time_delta_with_previous_rental_in_minutes"]
-        #hist, _ = np.histogram(data, bins=custom_bins, density=False)
-        #cumulative_counts = np.cumsum(hist)
-        #proportions = cumulative_counts / cumulative_counts[-1]  # Normalize to 1
         row = i + 1
 
+        # Courbe prop cumul
+        fig.add_trace(
+            go.Scatter(
+                x=bin_midpoints,
+                y=cumulative_props_list[i],
+                mode="lines+markers",
+                name=f"{scope} (proportion)",
+                customdata=cumulative_counts_list[i],
+                hovertemplate=(
+                    "Seuil (min): %{x}<br>"
+                    "Cumulated proportion: %{y:.1%}<br>"
+                    "Cumulated count: %{customdata}<extra></extra>"
+                )
+            ),
+            row=row,
+            col=1,
+            secondary_y=False
+        )
+
+        fig.add_shape(
+            type="line",
+            x0=bin_midpoints[point_index], x1=bin_midpoints[point_index],
+            y0=0, y1=y_max_list[i],
+            line=dict(color="red", dash="dash"),
+            xref=f"x{row}" if row > 1 else "x",
+            yref=f"y{row+ n_rows}" if row > 1 else "y2",  # <--- référence à l’axe secondaire
+            row=row, col=1
+        )
+
+        # Courbe cumul
         fig.add_trace(
             go.Scatter(
                 x=bin_midpoints,
                 y=cumulative_counts_list[i],
-                mode='lines+markers',
-                name=scope,
-                showlegend=True
+                mode="lines",
+                line=dict(dash="dot"),
+                name=f"{scope} (count)"
             ),
             row=row,
-            col=1
+            col=1,
+            secondary_y=True
         )
 
-        fig.add_shape(
-            type='line',
-            x0=bin_midpoints[point_index], x1=bin_midpoints[point_index],
-            y0=0.0, y1=y_max_list[i],
-            line=dict(color='red', dash='dash'),
-            xref=f'x{row}' if row > 1 else 'x',  # 'x' for first subplot
-            yref=f'y{row}' if row > 1 else 'y',
-            row=row, col=1
-        )
-
-    # Layout
     fig.update_layout(
         height=300 * n_rows,
-        #width=800,
         title_text=chart_title,
         xaxis_title=xaxis_title,
-        yaxis_title=yaxis_title,
         template="plotly_white"
     )
+
+    # Mise en forme des axes Y
+    for i in range(n_rows):
+        fig.update_yaxes(title_text="Proportion", tickformat=".0%", row=i+1, col=1, secondary_y=False)
+        fig.update_yaxes(title_text="Count", row=i+1, col=1, secondary_y=True)
+
+    # Couper au quantile quantile_zoom (utile lorsqu'il y a un palier à cause d'outliers)
+    if quantile_zoom is not None:
+        xmax = col.quantile(quantile_zoom)
+        fig.update_xaxes(range=[0, xmax])
+
     return (fig, output_data_points)
 
 def compute_rentals_with_previous_rental_dtf(delay_analysis_dtf:pd.DataFrame) -> pd.DataFrame:
@@ -309,23 +341,30 @@ st.markdown('Hence if delay2 < delay1 < threshold => rentals with delay2 also co
 rental_distribution_delay_threshold_col, rental_distribution_delay_threshold_scope_col = st.columns(2)
 
 with rental_distribution_delay_threshold_col:
-    fig, sample = generate_cumulative_rentals_by_threshold_chart(delay_analysis_delta_with_previous_dtf,2)
+    sample_index= 3
+    fig, sample = generate_cumulative_rentals_by_threshold_chart(delay_analysis_delta_with_previous_dtf,sample_index)
     st.plotly_chart(fig, use_container_width=True)
     sample_percentage = 100*sample[2]
     sample_percentage_formatted = format_decimals(sample_percentage,2)
-    st.markdown(f"<div style='margin-left:30px;'>✅With a threshold of {int(sample[0])} minutes, approximatively {int(sample[1])} rentals are concerned. It represents {sample_percentage_formatted} % of the rentals with a previous rental, and {sample_percentage_formatted}% * {proportion_delta_with_previous_formatted}% of the whole population.</div>", unsafe_allow_html=True)
+    whole_population_percentage_formatted = format_decimals(sample[2]*proportion_delta_with_previous,2)
+    st.markdown(f"<div style='margin-left:30px;'>✅With a threshold of {int(sample[0])} minutes, approximatively {int(sample[1])} rentals are concerned. It represents {sample_percentage_formatted} % of the rentals with a previous rental, and {sample_percentage_formatted}% * {proportion_delta_with_previous_formatted}% (={whole_population_percentage_formatted}%) of the whole population.</div>", unsafe_allow_html=True)
 
 with rental_distribution_delay_threshold_scope_col:
+    sample_index= 3
     fig, data_points = generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_dataframe=delay_analysis_delta_with_previous_dtf
                                                                      ,distrib_column='time_delta_with_previous_rental_in_minutes'
                                                                      ,chart_title='Cumulative Distribution of rentals affected by Threshold / scope'
                                                                      ,xaxis_title='Threshold - Time delta with previous rental (minutes)'
-                                                                     ,yaxis_title="Cumulative count",point_index=2)
+                                                                     ,yaxis_title="Cumulative count",point_index=sample_index)
     st.plotly_chart(fig, use_container_width=True)   
     for i in range(0,len(data_points)):
         scope_sample = data_points[i]
-        st.markdown(f"<div style='margin-left:30px;'>✅ for {scope_sample[0]}, with a threshold of {int(scope_sample[1])} minutes, approximatively {int(scope_sample[2])} rentals are concerned.</div>", unsafe_allow_html=True)
- 
+        sample_percentage = 100*scope_sample[3]
+        sample_percentage_formatted = format_decimals(sample_percentage,2)
+        whole_population_percentage_formatted = format_decimals(int(scope_sample[2])*100/delay_analysis_dtf.shape[0],2)
+        st.markdown(f"<div style='margin-left:30px;'>✅ for {scope_sample[0]}, with a threshold of {int(scope_sample[1])} minutes, approximatively {int(scope_sample[2])} rentals are concerned.It represents {sample_percentage_formatted} % of the rentals with a previous rental (with scope {scope_sample[0]}), and {whole_population_percentage_formatted}% of the whole population.</div>", unsafe_allow_html=True)
+
+
 st.markdown("<br><br>", unsafe_allow_html=True)    
 st.markdown('<h5> How often are drivers late for the next check-in? How does it impact the next driver ?  </h5>', unsafe_allow_html=True)
 st.markdown('<h6> 1. How often are drivers late for the next check-in ?  </h6>', unsafe_allow_html=True)
@@ -408,12 +447,12 @@ with min_delay_threshold_col:
     drivers_late_next_checking_dtf['min_delay_between_rentals'] = drivers_late_next_checking_dtf['time_delta_with_previous_rental_in_minutes_next'] + (drivers_late_next_checking_dtf['delay_at_checkout_in_minutes_previous']-drivers_late_next_checking_dtf['time_delta_with_previous_rental_in_minutes_next'])
     drivers_late_next_checking_threshold_dtf = drivers_late_next_checking_dtf.loc[:,['min_delay_between_rentals', 'checkin_type_previous' ]].copy()
     drivers_late_next_checking_threshold_dtf.rename(columns={'checkin_type_previous':'checkin_type'}, inplace=True)
-
+    sample_index = 3
     fig, data_points = generate_cumulative_rentals_by_threshold_and_scope_chart(delay_analysis_dataframe=drivers_late_next_checking_threshold_dtf
                                                                         ,distrib_column='min_delay_between_rentals'
                                                                         ,chart_title='Cumulative Distribution of rentals potentialy solved by Threshold'
                                                                         ,xaxis_title='Threshold - Time delta with previous rental (minutes)'
-                                                                        ,yaxis_title="Cumulative count",point_index=2)
+                                                                        ,yaxis_title="Cumulative count",point_index=sample_index, quantile_zoom=0.95)
 
     st.plotly_chart(fig, use_container_width=True) 
     for i in range(0,len(data_points)):
