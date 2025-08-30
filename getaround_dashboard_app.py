@@ -54,7 +54,7 @@ def generate_cumulative_rentals_by_threshold_chart(delay_analysis_delta_with_pre
 
     col = delay_analysis_delta_with_previous_dtf['time_delta_with_previous_rental_in_minutes']
     max_val = col.max()
-    custom_bins = np.arange(0, max_val + step, step)
+    custom_bins = np.arange(0, max_val + CHART_STEP, CHART_STEP)
 
     hist, bin_edges = np.histogram(col, bins=custom_bins, density=False)
     cumulative_counts = np.cumsum(hist)
