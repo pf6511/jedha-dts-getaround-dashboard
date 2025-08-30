@@ -52,7 +52,11 @@ CHART_CUSTOM_BINS = np.arange(CHART_STEP, (CHART_VALUES_COUNT + 1) * CHART_STEP,
 
 def generate_cumulative_rentals_by_threshold_chart(delay_analysis_delta_with_previous_dtf:pd.DataFrame, point_index:int) -> Tuple[go.Figure, Tuple[float,float,float]]:
 
-    hist, bin_edges = np.histogram(delay_analysis_delta_with_previous_dtf['time_delta_with_previous_rental_in_minutes'], bins=CHART_CUSTOM_BINS, density=False)
+    col = delay_analysis_delta_with_previous_dtf['time_delta_with_previous_rental_in_minutes']
+    max_val = col.max()
+    custom_bins = np.arange(0, max_val + step, step)
+
+    hist, bin_edges = np.histogram(col, bins=custom_bins, density=False)
     cumulative_counts = np.cumsum(hist)
 
     proportions = cumulative_counts / cumulative_counts[-1]  # Normalize to 1
