@@ -371,6 +371,7 @@ st.markdown('<h6> 1. How often are drivers late for the next check-in ?  </h6>',
 
 drivers_late_next_checking_dtf = compute_drivers_late_next_checkin_join_dtf(delay_analysis_dtf)
 rentals_with_previous_rental = compute_rentals_with_previous_rental_dtf(delay_analysis_dtf)
+st.markdown(f'number of drivers late for next check-in : {drivers_late_next_checking_dtf.shape[0]}')
 st.markdown(f'proportion of drivers late for next check-in : {format_decimals(100*drivers_late_next_checking_dtf.shape[0]/rentals_with_previous_rental.shape[0],2)} %')
 
 col1, col2, col3 = st.columns([3, 6, 1])
