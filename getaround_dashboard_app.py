@@ -325,19 +325,21 @@ delay_analysis_delta_with_previous_dtf = delay_analysis_dtf.query("time_delta_wi
 #st.markdown("---")
 #st.markdown("<br>", unsafe_allow_html=True)
 #st.subheader('')
-# We consider only rentals with state not canceled because canceled means no income
-valid_rentals = delay_analysis_dtf.loc[delay_analysis_dtf['state'] != 'canceled']
-chained_rentals = valid_rentals.loc[valid_rentals['previous_ended_rental_id'].notnull()]
-
 st.markdown('<h5> Which share of our owner’s revenue would potentially be affected by the feature ? </h5>', unsafe_allow_html=True)
 #st.subheader('Which share of our owner’s revenue would potentially be affected by the feature ?' )
 st.markdown('<span style="color: var(--primary-color)">The Proportion of rentals with a previous rental and with a delay < 12h with previous rentals helps answer this question</span>',unsafe_allow_html=True)
+st.markdown('<span style="color: var(--primary-color)">*To estimate owner share revenue proportion we discard canceled rentals</span>',unsafe_allow_html=True)
 #st.markdown('**time_delta_with_previous_rental_in_minutes**')
 #st.markdown('Difference in minutes between this rental planned start time and the previous rental planned end time (when lower than 12 hours, NULL if higher)')
-proportion_delta_with_previous = 100*chained_rentals.shape[0]/valid_rentals.shape[0]
+proportion_delta_with_previous = 100*delay_analysis_delta_with_previous_dtf.shape[0]/delay_analysis_dtf.shape[0]
 proportion_delta_with_previous_formatted = format_decimals(proportion_delta_with_previous,2)
-st.markdown(f'Number of rentals with previous rental  < 12h  : <span style="color: var(--primary-color); font-weight:bold;">{chained_rentals.shape[0]} ({proportion_delta_with_previous_formatted} % ) </span>',unsafe_allow_html=True)
 
+valid_rentals = delay_analysis_dtf.loc[delay_analysis_dtf['state'] != 'canceled']
+chained_rentals = valid_rentals.loc[valid_rentals['previous_ended_rental_id'].notnull()]
+owners_share_impacted_formatted = format_decimals(100*chained_rentals.shape[0]/valid_rentals.shape[0],2)
+
+proportion_delay_analysis_delta_with_previous = chained_rentals.shape[0]/valid_rentals.shape[0]
+st.markdown(f'Owners revenue share  : <span style="color: var(--primary-color); font-weight:bold;">{owners_share_impacted_formatted} % ) </span>',unsafe_allow_html=True)
 
 st.markdown('<h5> How many rentals would be affected by the feature depending on the threshold and scope we choose ? </h5>', unsafe_allow_html=True)
 st.markdown('Rentals affected by the threshold : if delay1 < threshold.')
