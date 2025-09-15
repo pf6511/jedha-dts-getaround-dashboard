@@ -339,7 +339,7 @@ chained_rentals = valid_rentals.loc[valid_rentals['previous_ended_rental_id'].no
 owners_share_impacted_formatted = format_decimals(100*chained_rentals.shape[0]/valid_rentals.shape[0],2)
 
 proportion_delay_analysis_delta_with_previous = chained_rentals.shape[0]/valid_rentals.shape[0]
-st.markdown(f'Owners revenue share  : <span style="color: var(--primary-color); font-weight:bold;">{owners_share_impacted_formatted} % ) </span>',unsafe_allow_html=True)
+st.markdown(f'Owners revenue share impacted : <span style="color: var(--primary-color); font-weight:bold;">{owners_share_impacted_formatted} % </span>',unsafe_allow_html=True)
 
 st.markdown('<h5> How many rentals would be affected by the feature depending on the threshold and scope we choose ? </h5>', unsafe_allow_html=True)
 st.markdown('Rentals affected by the threshold : if delay1 < threshold.')
